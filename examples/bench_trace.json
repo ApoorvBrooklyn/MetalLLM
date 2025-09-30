@@ -1,0 +1,76 @@
+{
+  "traceEvents": [
+    {
+      "name": "tokenize",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221163170333.8,
+      "dur": 4206.207930110395,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "generate_total",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221163906000.8,
+      "dur": 735147.3750313744,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "tokenize",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221163906396.8,
+      "dur": 375.20797923207283,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "generate_total",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221164294532.0,
+      "dur": 387601.5410060063,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "tokenize",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221164294949.0,
+      "dur": 401.7089959233999,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "generate_total",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221167160053.0,
+      "dur": 2864578.5419503227,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "tokenize",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221167160838.0,
+      "dur": 769.3329825997353,
+      "pid": 0,
+      "tid": 0
+    },
+    {
+      "name": "generate_total",
+      "cat": "phase",
+      "ph": "X",
+      "ts": 1759221170929573.8,
+      "dur": 3768234.7090449184,
+      "pid": 0,
+      "tid": 0
+    }
+  ]
+}
