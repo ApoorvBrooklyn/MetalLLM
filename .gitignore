@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.pyd
+*.dylib
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+myenv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# IDE
+.vscode/
+.idea/
+.history/
+
+# Logs
+logs/
+*.log
+
+# Models & weights (optional, usually large)
+models/
+**/models/
+*.pt
+*.bin
+*.safetensors
+*.onnx
+
+# KV cache & exports
+kv_cache/
+**/kv_cache/
+export_coreml/MetalLLM.mlpackage
+**/*.mlmodelc
+**/*.mlpackage
+
+# Swift Package artifacts
+SwiftPackage/.build/
+SwiftPackage/.swiftpm/
+SwiftPackage/DerivedData/
+SwiftPackage/Resources/MetalLLM.mlpackage
+
+# Node/Frontend (if any in future)
+node_modules/
+*.tsbuildinfo
+
+
+examples/kv_cache/
+examples/compare_trace.json
+examples/metal_llm_trace.json
+examples/mps_trace.json
+examples/metal_trace.json
+
+
+
+

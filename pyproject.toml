@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metal-llm"
+version = "0.0.1"
+description = "macOS-first large-context LLM inference with PyTorch MPS and Metal"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "MetalLLM Contributors" }
+]
+license = { text = "Apache-2.0" }
+dependencies = [
+  "torch>=2.3.0",
+  "transformers>=4.40.0",
+  "sentencepiece>=0.1.99",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/metallm"
+Issues = "https://github.com/your-org/metallm/issues"
+
+[tool.setuptools]
+packages = { find = { where = ["."], include = ["metal_llm*" ] } }
+
+[project.scripts]
+metal-llm = "metal_llm.cli:main"
+metal-llm-bench = "metal_llm.cli_bench:main"
+
+
