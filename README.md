@@ -32,9 +32,9 @@ print(out)
 Status
 ------
 - MVP works on MPS with a minimal streaming generate path
-- KV paging and Metal kernels are planned
+- KV paging and Metal kernels in progress. 
 
-Roadmap
+Future Updates planned
 -------
 - Paged KV cache with disk offload (100k+ tokens)
 - Flash-attention-like kernels in Metal (MSL)
