@@ -5,12 +5,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, Any, Dict, Tuple, List
+import os
 import threading
 import queue
 
 import torch
 
 from .storage import DiskCache
+from .runtime import RuntimeConfig
 from .profiler import Profiler
 
 
@@ -106,6 +108,10 @@ class ContextManager:
             t.start()
             self._bg_threads.append(t)
 
+        # Per-layer KV book-keeping: page_id -> (keys, values) residency on CPU/GPU
+        # We do not hold GPU tensors here to avoid double ownership; callers may move tensors.
+        self.layer_kv: Dict[int, Dict[int, KVPage]] = {}
+
     def on_prefill(self, num_tokens: int) -> None:
         self.total_tokens += num_tokens
         # Optionally allocate/track pages based on current plan
@@ -132,6 +138,113 @@ class ContextManager:
             for layer_idx in self.pages.keys():
                 self._ensure_page(layer_idx, current_page_id, page_tokens)
 
+    # ===== Paged KV API =====
+    def register_layer(self, layer_idx: int) -> None:
+        """Ensure internal structures for a given layer exist."""
+        self.pages.setdefault(layer_idx, [])
+        self.layer_kv.setdefault(layer_idx, {})
+
+    def append_kv(self, layer_idx: int, k: torch.Tensor, v: torch.Tensor) -> None:
+        """Append new KV for current token position into the current page.
+        Expects K/V shaped (B, Hkv, 1, D) for decode step.
+        """
+        if not self.plan_output:
+            return
+        page_tokens = self.plan_output.kv_page_tokens
+        current_page_id = (self.total_tokens // page_tokens) * page_tokens
+        self._ensure_page(layer_idx, current_page_id, page_tokens)
+        page = self.layer_kv[layer_idx].get(current_page_id)
+        if page is None:
+            page = KVPage(layer_idx=layer_idx, start_pos=current_page_id, end_pos=current_page_id + page_tokens - 1)
+            self.layer_kv[layer_idx][current_page_id] = page
+        # Concatenate along time dimension within page
+        try:
+            page.keys = k if page.keys is None else torch.cat([page.keys, k], dim=-2)
+            page.values = v if page.values is None else torch.cat([page.values, v], dim=-2)
+        except Exception:
+            # Fallback to replace if shapes mismatch
+            page.keys, page.values = k, v
+
+    def fetch_kv(self, layer_idx: int, page_id: int, device: str = "cpu") -> Optional[tuple[torch.Tensor, torch.Tensor]]:
+        """Fetch KV tensors for a given layer+page, loading from disk if needed."""
+        entry = self.layer_kv.setdefault(layer_idx, {}).get(page_id)
+        if entry and entry.keys is not None and entry.values is not None:
+            if device == "mps" and entry.keys.device.type != "mps":
+                entry.keys = entry.keys.to("mps")
+                entry.values = entry.values.to("mps")
+            elif device == "cpu" and entry.keys.device.type != "cpu":
+                entry.keys = entry.keys.to("cpu")
+                entry.values = entry.values.to("cpu")
+            return entry.keys, entry.values
+        # Attempt disk load
+        if self.disk_cache is not None:
+            tensors = self.disk_cache.load_page(layer_idx, page_id, device=device)
+            if tensors is not None:
+                k, v = tensors
+                page = self.layer_kv[layer_idx].get(page_id) or KVPage(layer_idx=layer_idx, start_pos=page_id, end_pos=page_id + (self.plan_output.kv_page_tokens if self.plan_output else 0) - 1)
+                page.keys, page.values = k, v
+                self.layer_kv[layer_idx][page_id] = page
+                return k, v
+        return None
+
+    def assemble_kv_window(self, layer_idx: int, max_tokens: int, device: str = "cpu") -> Optional[tuple[torch.Tensor, torch.Tensor]]:
+        """Concatenate KV from hot pages up to max_tokens from the tail.
+        Returns tensors shaped (B, Hkv, T, D) or None if no KV recorded.
+        """
+        if layer_idx not in self.layer_kv or not self.plan_output:
+            return None
+        page_tokens = self.plan_output.kv_page_tokens
+        pages = sorted(self.layer_kv[layer_idx].keys())
+        if not pages:
+            return None
+        # Collect from tail backwards
+        collected_k = []
+        collected_v = []
+        tokens_left = max_tokens
+        for pid in reversed(pages):
+            tensors = self.fetch_kv(layer_idx, pid, device=device)
+            if tensors is None:
+                continue
+            k, v = tensors
+            # Slice from page tail if exceeding window
+            take = min(tokens_left, k.shape[-2])
+            if take <= 0:
+                break
+            collected_k.insert(0, k[..., -take:, :])
+            collected_v.insert(0, v[..., -take:, :])
+            tokens_left -= take
+            if tokens_left <= 0:
+                break
+        if not collected_k:
+            return None
+        return torch.cat(collected_k, dim=-2), torch.cat(collected_v, dim=-2)
+
+    def pin_page(self, layer_idx: int, page_id: int, device: str = "mps") -> None:
+        """Pin a page (optionally move to GPU)."""
+        if self.disk_cache is not None:
+            self.disk_cache.set_pinned(layer_idx, page_id, True)
+        entry = self.layer_kv.setdefault(layer_idx, {}).get(page_id)
+        if entry and entry.keys is not None and device == "mps" and entry.keys.device.type != "mps":
+            entry.keys = entry.keys.to("mps"); entry.values = entry.values.to("mps")
+
+    def unpin_page(self, layer_idx: int, page_id: int) -> None:
+        if self.disk_cache is not None:
+            self.disk_cache.set_pinned(layer_idx, page_id, False)
+
+    def spill_page(self, layer_idx: int, page_id: int) -> None:
+        """Save page to disk and drop CPU copies."""
+        entry = self.layer_kv.setdefault(layer_idx, {}).get(page_id)
+        if not entry or entry.keys is None or entry.values is None:
+            return
+        if self.disk_cache is not None:
+            try:
+                self.disk_cache.save_page(layer_idx, page_id, entry.keys, entry.values)
+                entry.keys, entry.values = None, None
+                self.disk_cache.set_state(layer_idx, page_id, "disk")
+                if self.profiler: self.profiler.add_evict(1)
+            except Exception:
+                pass
+
     def allocate_page(self, layer_idx: int, start_pos: int, end_pos: int) -> KVPage:
         page = KVPage(layer_idx=layer_idx, start_pos=start_pos, end_pos=end_pos)
         self.pages.setdefault(layer_idx, []).append(page)
@@ -152,6 +265,17 @@ class ContextManager:
             for p in cold_excess:
                 self._task_q.put(("evict", (layer_idx, p)))
         return
+
+    def page_id_for_position(self, position: int) -> int:
+        """Return the page start id for a given absolute token position."""
+        if not self.plan_output:
+            return 0
+        page_tokens = self.plan_output.kv_page_tokens
+        return (position // page_tokens) * page_tokens
+
+    def current_page_id(self) -> int:
+        """Convenience accessor for the current tail page id."""
+        return self.page_id_for_position(self.total_tokens)
 
     # ===== Future public APIs =====
     def set_persistent_dir(self, path: str) -> None:

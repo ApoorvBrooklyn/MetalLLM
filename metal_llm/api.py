@@ -14,6 +14,10 @@ from .runtime import RuntimeConfig, select_device, select_dtype, apply_mode_defa
 from .memory import ContextManager, PlannerOutput
 from .storage import DiskCache, DiskCacheConfig
 from .profiler import Profiler
+from .attn_hooks import install_model_attention_hooks, SUPPORTED_MODEL_TYPES
+from .hf_processors.llama import install_llama_attention_processor
+from .hf_processors.qwen import install_qwen_attention_processor
+from .hf_processors.mistral import install_mistral_attention_processor
 
 
 @dataclass
@@ -154,6 +158,7 @@ def load(
     page_tokens: int = 1024,
     device_memory_budget_bytes: int = 3 * 1024 * 1024 * 1024,
     use_paged_kv: bool = False,
+    install_attn_hooks: bool = False,
 ) -> ModelHandle:
     """
     Load a HuggingFace causal LM on macOS using MPS when available.
@@ -211,13 +216,30 @@ def load(
     )
     ctx_mgr.set_plan(plan)
 
-    return ModelHandle(
+    handle = ModelHandle(
         model=model,
         tokenizer=tokenizer,
         config=cfg,
         context_manager=ctx_mgr,
         profiler=profiler,
     )
+
+    # Optionally install attention hooks for supported model types
+    if install_attn_hooks:
+        try:
+            model_type = getattr(getattr(model, "config", None), "model_type", "").lower()
+            if model_type in SUPPORTED_MODEL_TYPES:
+                install_model_attention_hooks(model, model_type=model_type, context_manager=ctx_mgr, profiler=profiler)
+                if model_type == "llama":
+                    install_llama_attention_processor(model, ctx_mgr, profiler)
+                elif model_type == "qwen2":
+                    install_qwen_attention_processor(model, ctx_mgr, profiler)
+                elif model_type == "mistral":
+                    install_mistral_attention_processor(model, ctx_mgr, profiler)
+        except Exception:
+            pass
+
+    return handle
 
 
 def generate(*args, **kwargs) -> str:

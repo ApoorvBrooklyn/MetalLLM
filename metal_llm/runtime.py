@@ -1,6 +1,3 @@
-"""
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +8,7 @@ import time
 
 from .memory import MemoryPlanner
 from . import kernels
+from .kernels.attention_metal import load_metal_kernels
 
 @dataclass
 class RuntimeConfig:
@@ -88,6 +86,12 @@ class Scheduler:
         long contexts are in use or configured via mode.
         """
         if op == "attention" and self.config.use_paged_kv:
+            # Prefer Metal attention if available; otherwise use streaming MPS
+            try:
+                if load_metal_kernels():
+                    return "metal"
+            except Exception:
+                pass
             return "mps_streaming"
         return "mps"
 
