@@ -43,6 +43,6 @@ Future Updates planned
 
 License
 -------
-Apache-2.0 (TBD)
+Apache-2.0
 
 
